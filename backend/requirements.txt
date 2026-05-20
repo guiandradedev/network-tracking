@@ -1,0 +1,8 @@
+python-nmap
+pandas
+mysql-connector-python
+python-dotenv
+flask
+flask-cors
+uvicorn
+sqlalchemy
