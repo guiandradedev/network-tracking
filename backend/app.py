@@ -35,11 +35,13 @@ logger = logging.getLogger(__name__)
 
 scanner = nmap.PortScanner()
 
+database = []
 
 @app.route('/')
 def index():
     """Serve the main dashboard page"""
-    return "hello"
+
+    return database
 
 def scanner_fn():
     print("Iniciando scanner...")
@@ -49,8 +51,6 @@ def scanner_fn():
     )
 
     print("Hosts encontrados:")
-
-    print(scanner.all_hosts())
 
     for host in scanner.all_hosts():
 
@@ -74,16 +74,25 @@ def scanner_fn():
                     )
     print("Scanner finalizado!")
 
+
+def insert_data_to_db(data):
+    print(data)
+    database.append(data)
+    return
+
 def callback(interface, debug=False):
     print("Executando callback...")
-    print(interface)
 
-    host = str(interface[0].address) + '/' + str(interface[0].netmask)
+    network = ipaddress.IPv4Network(
+        f"{interface[0].address}/{interface[0].netmask}",
+        strict=False
+    )
+    host = str(network)
     
     print(f"Host a ser escaneado: {host}")
     scanner.scan(
         hosts=host,
-        arguments='-sS -sV'
+        arguments='-sS'
     )
 
     print("Hosts encontrados na callback:")
@@ -93,24 +102,45 @@ def callback(interface, debug=False):
         print(f'\nHost: {host}')
         print(f'Status: {scanner[host].state()}')
 
+        host_data = {
+                "host": host,
+                "status": scanner[host].state(),
+                "protocols": []
+            }
+
         for proto in scanner[host].all_protocols():
 
-            print(f'\nProtocolo: {proto}')
+
+            # print(f'\nProtocolo: {proto}')
 
             portas = scanner[host][proto].keys()
+
+            protocols = (proto, [])
 
             for porta in portas:
 
                 dados = scanner[host][proto][porta]
 
-                print(
-                    f'Porta: {porta}\n'
-                    f'Estado: {dados.get("state")}\n'
-                    f'Serviço: {dados.get("name")}\n'
-                    f'Produto: {dados.get("product")}\n'
-                    f'Versão: {dados.get("version")}\n'
-                    f'Extra: {dados.get("extrainfo")}\n'
-                )
+                protocols[1].append({
+                    "port": porta,
+                    "state": dados.get("state"),
+                    "name": dados.get("name"),
+                    "product": dados.get("product"),
+                    "version": dados.get("version"),
+                    "extrainfo": dados.get("extrainfo")
+                })
+
+                # print(
+                #     f'Porta: {porta}\n'
+                #     f'Estado: {dados.get("state")}\n'
+                #     f'Serviço: {dados.get("name")}\n'
+                #     f'Produto: {dados.get("product")}\n'
+                #     f'Versão: {dados.get("version")}\n'
+                #     f'Extra: {dados.get("extrainfo")}\n'
+                # )
+            host_data["protocols"].append(protocols)
+
+            insert_data_to_db(host_data)
                 
     print("Callback executado!")
 
@@ -123,7 +153,7 @@ def check_root_privileges():
 
 def scheduler_thread(interface, debug=False):
     """Thread que executa o scheduler"""
-    schedule.every(2).seconds.do(callback, interface, debug)
+    schedule.every(15).seconds.do(callback, interface, debug)
     #schedule.every(2).minutes.do(remove_expired_uploads)
 
     print("Scheduler iniciado, aguardando tarefas...")
