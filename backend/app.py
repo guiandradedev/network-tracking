@@ -19,6 +19,7 @@ import psutil
 import ipaddress
 import socket
 import argparse
+from pymongo import MongoClient
 
 
 app = Flask(__name__)
@@ -35,49 +36,34 @@ logger = logging.getLogger(__name__)
 
 scanner = nmap.PortScanner()
 
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://admin:password@localhost:27017/")
+client = MongoClient(MONGO_URI)
+
+db = client['network_scanner']
+
+hosts_collection = db['hosts']
+
 database = []
 
 @app.route('/')
 def index():
     """Serve the main dashboard page"""
 
-    return database
 
-def scanner_fn():
-    print("Iniciando scanner...")
-    scanner.scan(
-        hosts='192.168.1.0/24',
-        arguments='-sn'
-    )
+    all_hosts = list(hosts_collection.find({}, {'_id': 0}))
+    
+    return all_hosts
 
-    print("Hosts encontrados:")
-
-    for host in scanner.all_hosts():
-
-        print(f'Host: {host}')
-        print(f'Status: {scanner[host].state()}')
-
-        for protocolo in scanner[host].all_protocols():
-
-            print(f'\nProtocolo: {protocolo}')
-
-            portas = scanner[host][protocolo].keys()
-
-            for porta in portas:
-
-                servico = scanner[host][protocolo][porta]
-
-                print(
-                    f'Porta: {porta} | '
-                    f'Estado: {servico["state"]} | '
-                    f'Serviço: {servico["name"]}'
-                    )
-    print("Scanner finalizado!")
 
 
 def insert_data_to_db(data):
-    print(data)
-    database.append(data)
+   
+    hosts_collection.update_one(
+        {"host": data["host"]},  # Filtro de busca (chave primária lógica)
+        {"$set": data},          # Dados a serem inseridos/atualizados
+        upsert=True              # Insere se não existir
+    )
+   
     return
 
 def callback(interface, debug=False):
@@ -102,9 +88,18 @@ def callback(interface, debug=False):
         print(f'\nHost: {host}')
         print(f'Status: {scanner[host].state()}')
 
+        mac_address = scanner[host]['addresses'].get('mac', None)
+
+        if mac_address:
+            fabricante = scanner[host]['vendor'].get(mac_address, 'Fabricante Desconhecido')
+        else:
+            logger.info(f'MAC address desconhecido')
+
         host_data = {
                 "host": host,
                 "status": scanner[host].state(),
+                "MAC":  mac_address,
+                "fabricante": fabricante,
                 "protocols": []
             }
 
