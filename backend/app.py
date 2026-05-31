@@ -41,11 +41,50 @@ def index():
     """Serve the main dashboard page"""
     return "hello"
 
+    
+def get_network():
+    try:
+        #Nessa parte abrimos uma conexao temporaria, para pegar o ip da maquina automaticamente
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8",80))
+        my_ip = s.getsockname()[0]
+        s.close()
+
+        logger.info(f'Ip da maquina: {my_ip}')
+
+        address_netmask = None
+
+        #Agora pegamos a interface que corresponde ao ip adquirido anteriormente
+        for interface, addresses in psutil.net_if_addrs().items():
+            for address in addresses:
+                if address.family == socket.AF_INET and address.address == my_ip:
+                    address_netmask = address.netmask
+                    break  
+            
+            if address_netmask:
+                break      
+        
+        logger.info(f'Netmask da rede: {address_netmask}')
+        
+        #fazemos o ip da maquina AND ip da rede
+        complete_interface = ipaddress.IPv4Interface(f"{my_ip}/{address_netmask}")
+
+
+        return str(complete_interface.network)
+                
+    except Exception as e:
+        logger.error(f"Erro ao tentar descobrir a rede ativa: {e}")
+        return None
+
+
 def scanner_fn():
-    print("Iniciando scanner...")
+    logger.info(f'Iniciando scanner...')
+
+    network = get_network()
+
     scanner.scan(
-        hosts='192.168.1.0/24',
-        arguments='-sn'
+        hosts= network,
+        arguments='-sT --open'
     )
 
     print("Hosts encontrados:")
@@ -55,11 +94,10 @@ def scanner_fn():
     for host in scanner.all_hosts():
 
         print(f'Host: {host}')
-        print(f'Status: {scanner[host].state()}')
 
         for protocolo in scanner[host].all_protocols():
 
-            print(f'\nProtocolo: {protocolo}')
+            print(f'Protocolo: {protocolo}')
 
             portas = scanner[host][protocolo].keys()
 
@@ -67,64 +105,23 @@ def scanner_fn():
 
                 servico = scanner[host][protocolo][porta]
 
-                print(
-                    f'Porta: {porta} | '
-                    f'Estado: {servico["state"]} | '
-                    f'Serviço: {servico["name"]}'
-                    )
+                print(f'├──>Porta: {porta}')
+                print(f'│   ├──>Estado: {servico["state"]}')
+                print(f'│   └──>Serviço: {servico["name"]}')
+                    
+        print('\n')
     print("Scanner finalizado!")
-
-def callback(interface, debug=False):
-    print("Executando callback...")
-    print(interface)
-
-    host = str(interface[0].address) + '/' + str(interface[0].netmask)
-    
-    print(f"Host a ser escaneado: {host}")
-    scanner.scan(
-        hosts=host,
-        arguments='-sS -sV'
-    )
-
-    print("Hosts encontrados na callback:")
-
-    for host in scanner.all_hosts():
-
-        print(f'\nHost: {host}')
-        print(f'Status: {scanner[host].state()}')
-
-        for proto in scanner[host].all_protocols():
-
-            print(f'\nProtocolo: {proto}')
-
-            portas = scanner[host][proto].keys()
-
-            for porta in portas:
-
-                dados = scanner[host][proto][porta]
-
-                print(
-                    f'Porta: {porta}\n'
-                    f'Estado: {dados.get("state")}\n'
-                    f'Serviço: {dados.get("name")}\n'
-                    f'Produto: {dados.get("product")}\n'
-                    f'Versão: {dados.get("version")}\n'
-                    f'Extra: {dados.get("extrainfo")}\n'
-                )
-                
-    print("Callback executado!")
 
 
 def check_root_privileges():
     if os.geteuid() != 0:
-        logger.error("Este script requer privilégios de root. Por favor, execute com sudo.")
+        logger.error("Este script requer privilégios de root. Por favor, execute em modo de administrador.")
         sys.exit(1)
 
 
-def scheduler_thread(interface, debug=False):
+def scheduler_thread():
     """Thread que executa o scheduler"""
-    schedule.every(2).seconds.do(callback, interface, debug)
-    #schedule.every(2).minutes.do(remove_expired_uploads)
+    schedule.every(10).seconds.do(scanner_fn)
 
     print("Scheduler iniciado, aguardando tarefas...")
     
@@ -135,32 +132,6 @@ def scheduler_thread(interface, debug=False):
             logger.error(f"Erro na thread do scheduler: {e}", exc_info=True)
 
 
-def choose_network_interface():
-    logger.info("Escolha a interface da rede a ser analisada")
-    logger.info("Escreva a interface")
-    # logger.info("Escreva a interface ou o endereço de rede no formato xxx.xxx.xxx.xxx/xx")
-    interfaces = []
-    
-    for interface, addrs in psutil.net_if_addrs().items():
-        interfaces.append(interface)
-        for addr in addrs:
-            if addr.family == socket.AF_INET:
-                ip = addr.address
-                mask = addr.netmask
-
-                network = ipaddress.IPv4Network(
-                    f"{ip}/{mask}",
-                    strict=False
-                )
-
-                print(f"[{interface}]: {ip}, {network}")
-
-    choosen_interface = input("")
-    if choosen_interface.lower() not in interfaces:
-        raise ValueError(f"Interface '{choosen_interface}' não encontrada.")
-
-    return psutil.net_if_addrs().get(choosen_interface)
-
 
 def main():
     """Initialize the application and start the scheduler thread."""
@@ -170,18 +141,9 @@ def main():
 
         check_root_privileges()
 
-        args = parser.parse_args()
-        if not args.interface:
-            interface = choose_network_interface()
-        else:
-            interface = psutil.net_if_addrs().get(args.interface)
-            if not interface:
-                logger.error(f"Interface '{args.interface}' não encontrada.")
-                sys.exit(1)
-
         scheduler_worker = threading.Thread(
             target=scheduler_thread,
-            args=(interface, True),
+            args=(),
             daemon=True,
             name="SchedulerWorker"
         )
@@ -200,7 +162,7 @@ def main():
 
 if __name__ == '__main__':
     host = os.getenv('HOST', '0.0.0.0')
-    port = int(os.getenv('PORT', 8000))
+    port = int(os.getenv('PORT', 5000))
     debug = os.getenv('DEBUG', 'True').lower() in ('1', 'true', 'yes')
 
     main()
