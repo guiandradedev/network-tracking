@@ -19,6 +19,7 @@ import psutil
 import ipaddress
 import socket
 import argparse
+import pymongo
 
 
 app = Flask(__name__)
@@ -94,6 +95,16 @@ def scanner_fn():
     for host in scanner.all_hosts():
 
         print(f'Host: {host}')
+
+        mac_address = scanner[host]['addresses'].get('mac', None)
+        
+        if mac_address:
+            fabricante = scanner[host]['vendor'].get(mac_address, 'Fabricante Desconhecido')
+            print(f'MAC Address: {mac_address}')
+            print(f'Fabricante:  {fabricante}')
+        else:
+            print(f'MAC Address: Não detectado (Faltou executar com sudo?)')
+
 
         for protocolo in scanner[host].all_protocols():
 
