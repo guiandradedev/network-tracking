@@ -19,18 +19,11 @@ import psutil
 import ipaddress
 from pymongo import MongoClient
 
-# Caso exista no seu projeto, mantive o import
-try:
-    from utils.colors import Colors
-except ImportError:
-    pass
-
 app = Flask(__name__)
 parser = argparse.ArgumentParser()
 parser.add_argument("-i", "--interface", type=str)
 CORS(app)
 
-# ⚙️ Setup de logging
 logging.basicConfig(
     level=logging.INFO,
     format='[%(asctime)s] %(levelname)s: %(message)s'
@@ -47,9 +40,9 @@ client = MongoClient(MONGO_URI)
 db = client['network_scanner']
 
 # ++++++++++++++++++++++++++++++ COMEMTAR ESSAS LINHAS DEPOIS DE RODAR PELA PRIMEIRA VEZ!!!!+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-db.hosts.delete_many({})
-db.network_history.delete_many({})
-db.device_history.delete_many({})
+#db.hosts.delete_many({})
+#db.network_history.delete_many({})
+#db.device_history.delete_many({})
 #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 # Definição das Coleções
@@ -228,7 +221,6 @@ def callback(interface, debug=False):
                 "timestamp": scan_time
             })
 
-        # Estrutura limpa do dispositivo, sem protocolos ou portas
         host_data = {
             "host": host,
             "status": status,
@@ -238,7 +230,6 @@ def callback(interface, debug=False):
 
         insert_data_to_db(host_data)
         
-        # Log limpo e direto no console
         print(f"[+] IP: {host_data['host']:<15} | Status: {host_data['status'].upper()} | MAC: {host_data['MAC'] or 'Não identificado'}")
                 
     # Marca como 'down' quem não está na lista atual
